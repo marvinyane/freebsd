@@ -197,7 +197,11 @@ static REG_DOMAIN regDomains[] = {
 
 	{.regDmnEnum		= FCC1,
 	 .conformanceTestLimit	= FCC,
-	 .chan11a		= BM3(F2_5180_5240, F4_5260_5320, F5_5745_5825),
+	 .chan11a               = BM4(F2_5180_5240,
+							  F4_5260_5320,
+							  F5_5745_5825,
+							  F2_5860_5920),
+	 .chan11a_half      = BM1(F1_5860_5920),
 	 .chan11a_turbo		= BM3(T1_5210_5210, T2_5250_5290, T2_5760_5800),
 	 .chan11a_dyn_turbo	= BM3(T1_5200_5240, T1_5280_5280, T1_5765_5805),
 	},

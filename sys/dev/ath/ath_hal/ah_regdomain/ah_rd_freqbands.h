@@ -164,6 +164,12 @@ static REG_DMN_FREQ_BAND regDmn5GhzFreq[] = {
 	{ 5745, 5825, 30, 6, 20,  5, NO_DFS, NO_PSCAN },
 #define	F10_5745_5825	AFTER(F9_5745_5825)
 
+	/* 802.11p channels */
+	{ 5860, 5920, 33, 6, 10, 10, NO_DFS, NO_PSCAN }, /* 10 MHz channels */
+#define F1_5860_5920   AFTER(F10_5745_5825)
+	{ 5875, 5905, 33, 6, 20, 30, NO_DFS, NO_PSCAN }, /* 20 MHz channels */
+#define F2_5860_5920   AFTER(F1_5860_5920)
+
 	/*
 	 * Below are the world roaming channels
 	 * All WWR domains have no power limit, instead use the card's CTL
