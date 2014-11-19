@@ -351,12 +351,13 @@ hdac_pin_patch(struct hdaa_widget *w)
 	    (subid == LENOVO_X1_SUBVENDOR ||
 	    subid == LENOVO_X220_SUBVENDOR ||
 	    subid == LENOVO_T420_SUBVENDOR ||
-	    subid == LENOVO_T520_SUBVENDOR)) {
+	    subid == LENOVO_T520_SUBVENDOR ||
+	    subid == LENOVO_G580_SUBVENDOR)) {
 		switch (nid) {
 		case 25:
 			patch = "as=1 seq=15";
 			break;
-		/* 
+		/*
 		 * Group onboard mic and headphone mic
 		 * together.  Fixes onboard mic.
 		 */
@@ -381,6 +382,13 @@ hdac_pin_patch(struct hdaa_widget *w)
 	    subid == ASUS_UX31A_SUBVENDOR) {
 		switch (nid) {
 		case 33:
+			patch = "as=1 seq=15";
+			break;
+		}
+	} else if (id == HDA_CODEC_ALC892 &&
+	    subid == INTEL_DH87RL_SUBVENDOR) {
+		switch (nid) {
+		case 27:
 			patch = "as=1 seq=15";
 			break;
 		}

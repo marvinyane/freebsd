@@ -283,6 +283,7 @@ kern_execve(td, args, mac_p)
 	struct mac *mac_p;
 {
 	struct proc *p = td->td_proc;
+	struct vmspace *oldvmspace;
 	int error;
 
 	AUDIT_ARG_ARGV(args->begin_argv, args->argc,
@@ -299,6 +300,8 @@ kern_execve(td, args, mac_p)
 		PROC_UNLOCK(p);
 	}
 
+	KASSERT((td->td_pflags & TDP_EXECVMSPC) == 0, ("nested execve"));
+	oldvmspace = td->td_proc->p_vmspace;
 	error = do_execve(td, args, mac_p);
 
 	if (p->p_flag & P_HADTHREADS) {
@@ -312,6 +315,12 @@ kern_execve(td, args, mac_p)
 		else
 			thread_single_end();
 		PROC_UNLOCK(p);
+	}
+	if ((td->td_pflags & TDP_EXECVMSPC) != 0) {
+		KASSERT(td->td_proc->p_vmspace != oldvmspace,
+		    ("oldvmspace still used"));
+		vmspace_free(oldvmspace);
+		td->td_pflags &= ~TDP_EXECVMSPC;
 	}
 
 	return (error);
@@ -330,7 +339,7 @@ do_execve(td, args, mac_p)
 	struct proc *p = td->td_proc;
 	struct nameidata nd;
 	struct ucred *newcred = NULL, *oldcred;
-	struct uidinfo *euip;
+	struct uidinfo *euip = NULL;
 	register_t *stack_base;
 	int error, i;
 	struct image_params image_params, *imgp;
@@ -588,13 +597,13 @@ interpret:
 	 * For security and other reasons, the file descriptor table cannot
 	 * be shared after an exec.
 	 */
-	fdunshare(p, td);
+	fdunshare(td);
+	/* close files on exec */
+	fdcloseexec(td);
 
 	/*
 	 * Malloc things before we need locks.
 	 */
-	newcred = crget();
-	euip = uifind(attr.va_uid);
 	i = imgp->args->begin_envv - imgp->args->begin_argv;
 	/* Cache arguments if they fit inside our allowance */
 	if (ps_arg_cache_limit >= i + sizeof(struct pargs)) {
@@ -602,8 +611,6 @@ interpret:
 		bcopy(imgp->args->begin_argv, newargs->ar_args, i);
 	}
 
-	/* close files on exec */
-	fdcloseexec(td);
 	vn_lock(imgp->vp, LK_SHARED | LK_RETRY);
 
 	/* Get a reference to the vnode prior to locking the proc */
@@ -615,18 +622,19 @@ interpret:
 	 * handlers. In execsigs(), the new process will have its signals
 	 * reset.
 	 */
-	PROC_LOCK(p);
-	oldcred = crcopysafe(p, newcred);
 	if (sigacts_shared(p->p_sigacts)) {
 		oldsigacts = p->p_sigacts;
-		PROC_UNLOCK(p);
 		newsigacts = sigacts_alloc();
 		sigacts_copy(newsigacts, oldsigacts);
-		PROC_LOCK(p);
-		p->p_sigacts = newsigacts;
-	} else
+	} else {
 		oldsigacts = NULL;
+		newsigacts = NULL; /* satisfy gcc */
+	}
 
+	PROC_LOCK(p);
+	if (oldsigacts)
+		p->p_sigacts = newsigacts;
+	oldcred = p->p_ucred;
 	/* Stop profiling */
 	stopprofclock(p);
 
@@ -650,7 +658,7 @@ interpret:
 	 * it that it now has its own resources back
 	 */
 	p->p_flag |= P_EXEC;
-	if (p->p_pptr && (p->p_flag & P_PPWAIT)) {
+	if (p->p_flag & P_PPWAIT) {
 		p->p_flag &= ~(P_PPWAIT | P_PPTRACE);
 		cv_broadcast(&p->p_pwait);
 	}
@@ -713,9 +721,11 @@ interpret:
 		VOP_UNLOCK(imgp->vp, 0);
 		setugidsafety(td);
 		error = fdcheckstd(td);
-		vn_lock(imgp->vp, LK_SHARED | LK_RETRY);
 		if (error != 0)
 			goto done1;
+		newcred = crdup(oldcred);
+		euip = uifind(attr.va_uid);
+		vn_lock(imgp->vp, LK_SHARED | LK_RETRY);
 		PROC_LOCK(p);
 		/*
 		 * Set the new credentials.
@@ -740,7 +750,6 @@ interpret:
 		change_svuid(newcred, newcred->cr_uid);
 		change_svgid(newcred, newcred->cr_gid);
 		p->p_ucred = newcred;
-		newcred = NULL;
 	} else {
 		if (oldcred->cr_uid == oldcred->cr_ruid &&
 		    oldcred->cr_gid == oldcred->cr_rgid)
@@ -759,10 +768,14 @@ interpret:
 		 */
 		if (oldcred->cr_svuid != oldcred->cr_uid ||
 		    oldcred->cr_svgid != oldcred->cr_gid) {
+			PROC_UNLOCK(p);
+			VOP_UNLOCK(imgp->vp, 0);
+			newcred = crdup(oldcred);
+			vn_lock(imgp->vp, LK_SHARED | LK_RETRY);
+			PROC_LOCK(p);
 			change_svuid(newcred, newcred->cr_uid);
 			change_svgid(newcred, newcred->cr_gid);
 			p->p_ucred = newcred;
-			newcred = NULL;
 		}
 	}
 
@@ -835,16 +848,15 @@ interpret:
 
 	SDT_PROBE(proc, kernel, , exec__success, args->fname, 0, 0, 0, 0);
 
+	VOP_UNLOCK(imgp->vp, 0);
 done1:
 	/*
 	 * Free any resources malloc'd earlier that we didn't use.
 	 */
-	uifree(euip);
-	if (newcred == NULL)
+	if (euip != NULL)
+		uifree(euip);
+	if (newcred != NULL)
 		crfree(oldcred);
-	else
-		crfree(newcred);
-	VOP_UNLOCK(imgp->vp, 0);
 
 	/*
 	 * Handle deferred decrement of ref counts.
@@ -984,6 +996,7 @@ exec_map_first_page(imgp)
 	vm_page_xunbusy(ma[0]);
 	vm_page_lock(ma[0]);
 	vm_page_hold(ma[0]);
+	vm_page_activate(ma[0]);
 	vm_page_unlock(ma[0]);
 	VM_OBJECT_WUNLOCK(object);
 

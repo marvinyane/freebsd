@@ -988,12 +988,12 @@ igb_mq_start(struct ifnet *ifp, struct mbuf *m)
 	if (err)
 		return (err);
 	if (IGB_TX_TRYLOCK(txr)) {
-		err = igb_mq_start_locked(ifp, txr);
+		igb_mq_start_locked(ifp, txr);
 		IGB_TX_UNLOCK(txr);
 	} else
 		taskqueue_enqueue(que->tq, &txr->txq_task);
 
-	return (err);
+	return (0);
 }
 
 static int
@@ -3531,7 +3531,7 @@ igb_setup_transmit_ring(struct tx_ring *txr)
 		if (slot) {
 			int si = netmap_idx_n2k(&na->tx_rings[txr->me], i);
 			/* no need to set the address */
-			netmap_load_map(txr->txtag, txbuf->map, NMB(slot + si));
+			netmap_load_map(na, txr->txtag, txbuf->map, NMB(na, slot + si));
 		}
 #endif /* DEV_NETMAP */
 		/* clear the watch index */
@@ -4335,8 +4335,8 @@ igb_setup_receive_ring(struct rx_ring *rxr)
 			uint64_t paddr;
 			void *addr;
 
-			addr = PNMB(slot + sj, &paddr);
-			netmap_load_map(rxr->ptag, rxbuf->pmap, addr);
+			addr = PNMB(na, slot + sj, &paddr);
+			netmap_load_map(na, rxr->ptag, rxbuf->pmap, addr);
 			/* Update descriptor */
 			rxr->rx_base[j].read.pkt_addr = htole64(paddr);
 			continue;

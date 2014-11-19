@@ -12,7 +12,6 @@
 SUBDIR=	alias \
 	apply \
 	asa \
-	${_atf} \
 	awk \
 	banner \
 	basename \
@@ -37,7 +36,6 @@ SUBDIR=	alias \
 	ctlstat \
 	cut \
 	dirname \
-	dtc \
 	du \
 	ee \
 	elf2aout \
@@ -107,6 +105,7 @@ SUBDIR=	alias \
 	mkdep \
 	${_mkesdb} \
 	mkfifo \
+	mkimg \
 	mklocale \
 	mktemp \
 	mkulzma \
@@ -144,6 +143,7 @@ SUBDIR=	alias \
 	rwall \
 	script \
 	sed \
+	send-pr \
 	seq \
 	shar \
 	showmount \
@@ -229,6 +229,10 @@ SUBDIR+=	calendar
 
 .if ${MK_CLANG} != "no"
 _clang=		clang
+.endif
+
+.if ${MK_GPL_DTC} != "yes"
+SUBDIR+=	dtc
 .endif
 
 .if ${MK_GROFF} != "no"
@@ -330,7 +334,6 @@ SUBDIR+=	telnet
 .endif
 
 .if ${MK_TESTS} != "no"
-_atf=		atf
 _tests=		tests
 .endif
 
@@ -355,6 +358,10 @@ SUBDIR+=	unifdef
 SUBDIR+=	xlint
 SUBDIR+=	xstr
 SUBDIR+=	yacc
+.endif
+
+.if ${MK_VT} != "no"
+SUBDIR+=	vtfontcvt
 .endif
 
 .if ${MK_USB} != "no"

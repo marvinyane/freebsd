@@ -54,11 +54,11 @@ __FBSDID("$FreeBSD$");
 
 #if defined(INET) || defined(INET6)
 #include <netinet/in.h>
+#include <netinet/ip.h>
 #endif
 #ifdef INET
 #include <netinet/in_systm.h>
 #include <netinet/if_ether.h>
-#include <netinet/ip.h>
 #endif
 
 #ifdef INET6
@@ -448,6 +448,11 @@ lagg_capabilities(struct lagg_softc *sc)
 	struct lagg_port *lp;
 	int cap = ~0, ena = ~0;
 	u_long hwa = ~0UL;
+#if defined(INET) || defined(INET6)
+	u_int hw_tsomax = IP_MAXPACKET;	/* Initialize to the maximum value. */
+#else
+	u_int hw_tsomax = ~0;	/* if_hw_tsomax is only for INET/INET6, but.. */
+#endif
 
 	LAGG_WLOCK_ASSERT(sc);
 
@@ -456,6 +461,10 @@ lagg_capabilities(struct lagg_softc *sc)
 		cap &= lp->lp_ifp->if_capabilities;
 		ena &= lp->lp_ifp->if_capenable;
 		hwa &= lp->lp_ifp->if_hwassist;
+		/* Set to the minimum value of the lagg ports. */
+		if (lp->lp_ifp->if_hw_tsomax < hw_tsomax &&
+		    lp->lp_ifp->if_hw_tsomax > 0)
+			hw_tsomax = lp->lp_ifp->if_hw_tsomax;
 	}
 	cap = (cap == ~0 ? 0 : cap);
 	ena = (ena == ~0 ? 0 : ena);
@@ -463,10 +472,12 @@ lagg_capabilities(struct lagg_softc *sc)
 
 	if (sc->sc_ifp->if_capabilities != cap ||
 	    sc->sc_ifp->if_capenable != ena ||
-	    sc->sc_ifp->if_hwassist != hwa) {
+	    sc->sc_ifp->if_hwassist != hwa ||
+	    sc->sc_ifp->if_hw_tsomax != hw_tsomax) {
 		sc->sc_ifp->if_capabilities = cap;
 		sc->sc_ifp->if_capenable = ena;
 		sc->sc_ifp->if_hwassist = hwa;
+		sc->sc_ifp->if_hw_tsomax = hw_tsomax;
 		getmicrotime(&sc->sc_ifp->if_lastchange);
 
 		if (sc->sc_ifflags & IFF_DEBUG)
@@ -1208,39 +1219,39 @@ lagg_ether_cmdmulti(struct lagg_port *lp, int set)
 	struct ifnet *ifp = lp->lp_ifp;
 	struct ifnet *scifp = sc->sc_ifp;
 	struct lagg_mc *mc;
-	struct ifmultiaddr *ifma, *rifma = NULL;
-	struct sockaddr_dl sdl;
+	struct ifmultiaddr *ifma;
 	int error;
 
 	LAGG_WLOCK_ASSERT(sc);
 
-	bzero((char *)&sdl, sizeof(sdl));
-	sdl.sdl_len = sizeof(sdl);
-	sdl.sdl_family = AF_LINK;
-	sdl.sdl_type = IFT_ETHER;
-	sdl.sdl_alen = ETHER_ADDR_LEN;
-	sdl.sdl_index = ifp->if_index;
-
 	if (set) {
+		IF_ADDR_WLOCK(scifp);
 		TAILQ_FOREACH(ifma, &scifp->if_multiaddrs, ifma_link) {
 			if (ifma->ifma_addr->sa_family != AF_LINK)
 				continue;
-			bcopy(LLADDR((struct sockaddr_dl *)ifma->ifma_addr),
-			    LLADDR(&sdl), ETHER_ADDR_LEN);
-
-			error = if_addmulti(ifp, (struct sockaddr *)&sdl, &rifma);
+			mc = malloc(sizeof(struct lagg_mc), M_DEVBUF, M_NOWAIT);
+			if (mc == NULL) {
+				IF_ADDR_WUNLOCK(scifp);
+				return (ENOMEM);
+			}
+			bcopy(ifma->ifma_addr, &mc->mc_addr,
+			    ifma->ifma_addr->sa_len);
+			mc->mc_addr.sdl_index = ifp->if_index;
+			mc->mc_ifma = NULL;
+			SLIST_INSERT_HEAD(&lp->lp_mc_head, mc, mc_entries);
+		}
+		IF_ADDR_WUNLOCK(scifp);
+		SLIST_FOREACH (mc, &lp->lp_mc_head, mc_entries) {
+			error = if_addmulti(ifp,
+			    (struct sockaddr *)&mc->mc_addr, &mc->mc_ifma);
 			if (error)
 				return (error);
-			mc = malloc(sizeof(struct lagg_mc), M_DEVBUF, M_NOWAIT);
-			if (mc == NULL)
-				return (ENOMEM);
-			mc->mc_ifma = rifma;
-			SLIST_INSERT_HEAD(&lp->lp_mc_head, mc, mc_entries);
 		}
 	} else {
 		while ((mc = SLIST_FIRST(&lp->lp_mc_head)) != NULL) {
 			SLIST_REMOVE(&lp->lp_mc_head, mc, lagg_mc, mc_entries);
-			if_delmulti_ifma(mc->mc_ifma);
+			if (mc->mc_ifma && !lp->lp_detaching)
+				if_delmulti_ifma(mc->mc_ifma);
 			free(mc, M_DEVBUF);
 		}
 	}

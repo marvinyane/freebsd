@@ -40,6 +40,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/devmap.h>
 #include <machine/machdep.h>
 
+#include <arm/arm/mpcore_timervar.h>
 #include <arm/freescale/imx/imx6_anatopreg.h>
 #include <arm/freescale/imx/imx6_anatopvar.h>
 #include <arm/freescale/imx/imx_machdep.h>
@@ -55,9 +56,8 @@ void
 initarm_early_init(void)
 {
 
-	/* XXX - Get rid of this stuff soon. */
-	boothowto |= RB_VERBOSE|RB_MULTIPLE;
-	bootverbose = 1;
+	/* Inform the MPCore timer driver that its clock is variable. */
+	arm_tmr_change_frequency(ARM_TMR_FREQUENCY_VARIES);
 }
 
 void
@@ -145,11 +145,15 @@ u_int imx_soc_type()
 {
 	uint32_t digprog, hwsoc;
 	uint32_t *pcr;
+	static u_int soctype;
 	const vm_offset_t SCU_CONFIG_PHYSADDR = 0x00a00004;
 #define	HWSOC_MX6SL	0x60
 #define	HWSOC_MX6DL	0x61
 #define	HWSOC_MX6SOLO	0x62
 #define	HWSOC_MX6Q	0x63
+
+	if (soctype != 0)
+		return (soctype);
 
 	digprog = imx6_anatop_read_4(IMX6_ANALOG_DIGPROG_SL);
 	hwsoc = (digprog >> IMX6_ANALOG_DIGPROG_SOCTYPE_SHIFT) & 
@@ -174,19 +178,48 @@ u_int imx_soc_type()
 
 	switch (hwsoc) {
 	case HWSOC_MX6SL:
-		return (IMXSOC_6SL);
+		soctype = IMXSOC_6SL;
+		break;
 	case HWSOC_MX6SOLO:
-		return (IMXSOC_6S);
+		soctype = IMXSOC_6S;
+		break;
 	case HWSOC_MX6DL:
-		return (IMXSOC_6DL);
+		soctype = IMXSOC_6DL;
+		break;
 	case HWSOC_MX6Q :
-		return (IMXSOC_6Q);
+		soctype = IMXSOC_6Q;
+		break;
 	default:
 		printf("imx_soc_type: Don't understand hwsoc 0x%02x, "
 		    "digprog 0x%08x; assuming IMXSOC_6Q\n", hwsoc, digprog);
+		soctype = IMXSOC_6Q;
 		break;
 	}
 
-	return (IMXSOC_6Q);
+	return (soctype);
 }
+
+/*
+ * Early putc routine for EARLY_PRINTF support.  To use, add to kernel config:
+ *   option SOCDEV_PA=0x02000000
+ *   option SOCDEV_VA=0x02000000
+ *   option EARLY_PRINTF
+ * Resist the temptation to change the #if 0 to #ifdef EARLY_PRINTF here. It
+ * makes sense now, but if multiple SOCs do that it will make early_putc another
+ * duplicate symbol to be eliminated on the path to a generic kernel.
+ */
+#if 0 
+static void 
+imx6_early_putc(int c)
+{
+	volatile uint32_t * UART_STAT_REG = (uint32_t *)0x02020098;
+	volatile uint32_t * UART_TX_REG   = (uint32_t *)0x02020040;
+	const uint32_t      UART_TXRDY    = (1 << 3);
+
+	while ((*UART_STAT_REG & UART_TXRDY) == 0)
+		continue;
+	*UART_TX_REG = c;
+}
+early_putc_t *early_putc = imx6_early_putc;
+#endif
 

@@ -36,6 +36,7 @@ MAN=	aac.4 \
 	alc.4 \
 	ale.4 \
 	alpm.4 \
+	altera_atse.4 \
 	altera_avgen.4 \
 	altera_jtag_uart.4 \
 	altera_sdcard.4 \
@@ -153,10 +154,13 @@ MAN=	aac.4 \
 	geom_fox.4 \
 	geom_linux_lvm.4 \
 	geom_map.4 \
+	geom_uncompress.4 \
 	geom_uzip.4 \
 	gif.4 \
 	gpib.4 \
 	gpio.4 \
+	gpioiic.4 \
+	gpioled.4 \
 	gre.4 \
 	h_ertt.4 \
 	hatm.4 \
@@ -202,6 +206,7 @@ MAN=	aac.4 \
 	ipw.4 \
 	ipwfw.4 \
 	isci.4 \
+	iscsi.4 \
 	iscsi_initiator.4 \
 	isp.4 \
 	ispfw.4 \
@@ -259,8 +264,10 @@ MAN=	aac.4 \
 	mod_cc.4 \
 	mos.4 \
 	mouse.4 \
+	mpr.4 \
 	mps.4 \
 	mpt.4 \
+	mrsas.4 \
 	msk.4 \
 	mtio.4 \
 	multicast.4 \
@@ -277,6 +284,7 @@ MAN=	aac.4 \
 	ncv.4 \
 	${_ndis.4} \
 	net80211.4 \
+	netfpga10g_nf10bmac.4 \
 	netgraph.4 \
 	netintro.4 \
 	netmap.4 \
@@ -509,6 +517,7 @@ MAN=	aac.4 \
 	udav.4 \
 	udbp.4 \
 	udp.4 \
+	udplite.4 \
 	uep.4 \
 	ufm.4 \
 	ufoma.4 \
@@ -533,6 +542,7 @@ MAN=	aac.4 \
 	urndis.4 \
 	${_urtw.4} \
 	urtwn.4 \
+	urtwnfw.4 \
 	usb.4 \
 	usb_template.4 \
 	usb_quirk.4 \
@@ -548,12 +558,14 @@ MAN=	aac.4 \
 	${_virtio.4} \
 	${_virtio_balloon.4} \
 	${_virtio_blk.4} \
+	${_virtio_random.4} \
 	${_virtio_scsi.4} \
 	vkbd.4 \
 	vlan.4 \
 	${_vmx.4} \
 	vpo.4 \
 	vr.4 \
+	vt.4 \
 	vte.4 \
 	${_vtnet.4} \
 	${_vxge.4} \
@@ -631,6 +643,7 @@ MLINKS+=fxp.4 if_fxp.4
 MLINKS+=gem.4 if_gem.4
 MLINKS+=geom.4 GEOM.4
 MLINKS+=gif.4 if_gif.4
+MLINKS+=gpio.4 gpiobus.4
 MLINKS+=gre.4 if_gre.4
 MLINKS+=hatm.4 if_hatm.4
 MLINKS+=hme.4 if_hme.4
@@ -668,6 +681,7 @@ MLINKS+=mwl.4 if_mwl.4
 MLINKS+=mxge.4 if_mxge.4
 MLINKS+=my.4 if_my.4
 MLINKS+=${_ndis.4} ${_if_ndis.4}
+MLINKS+=netfpga10g_nf10bmac.4 if_nf10bmac.4
 MLINKS+=netintro.4 net.4 \
 	netintro.4 networking.4
 MLINKS+=${_nfe.4} ${_if_nfe.4}
@@ -795,6 +809,7 @@ _nxge.4=	nxge.4
 _virtio.4=	virtio.4
 _virtio_balloon.4=virtio_balloon.4
 _virtio_blk.4=	virtio_blk.4
+_virtio_random.4= virtio_random.4
 _virtio_scsi.4= virtio_scsi.4
 _vmx.4=		vmx.4
 _vtnet.4=	vtnet.4

@@ -112,6 +112,7 @@ MAN=	accept_filter.9 \
 	fail.9 \
 	fetch.9 \
 	firmware.9 \
+	fpu_kern.9 \
 	g_access.9 \
 	g_attach.9 \
 	g_bio.9 \
@@ -191,11 +192,11 @@ MAN=	accept_filter.9 \
 	pci.9 \
 	pfil.9 \
 	pfind.9 \
+	pget.9 \
 	pgfind.9 \
 	physio.9 \
 	pmap.9 \
 	pmap_activate.9 \
-	pmap_change_wiring.9 \
 	pmap_clear_modify.9 \
 	pmap_copy.9 \
 	pmap_enter.9 \
@@ -215,6 +216,7 @@ MAN=	accept_filter.9 \
 	pmap_release.9 \
 	pmap_remove.9 \
 	pmap_resident_count.9 \
+	pmap_unwire.9 \
 	pmap_zero_page.9 \
 	printf.9 \
 	prison_check.9 \
@@ -353,7 +355,6 @@ MAN=	accept_filter.9 \
 	VOP_GETACL.9 \
 	VOP_GETEXTATTR.9 \
 	VOP_GETPAGES.9 \
-	VOP_GETVOBJECT.9 \
 	VOP_INACTIVE.9 \
 	VOP_IOCTL.9 \
 	VOP_LINK.9 \
@@ -668,6 +669,12 @@ MLINKS+=fetch.9 fubyte.9 \
 	fetch.9 fuword16.9 \
 	fetch.9 fuword32.9 \
 	fetch.9 fuword64.9
+MLINKS+=fpu_kern.9 fpu_kern_alloc_ctx.9 \
+	fpu_kern.9 fpu_kern_free_ctx.9 \
+	fpu_kern.9 fpu_kern_enter.9 \
+	fpu_kern.9 fpu_kern_leave.9 \
+	fpu_kern.9 fpu_kern_thread.9 \
+	fpu_kern.9 is_fpu_kern_thread.9
 MLINKS+=g_attach.9 g_detach.9
 MLINKS+=g_bio.9 g_clone_bio.9 \
 	g_bio.9 g_destroy_bio.9 \
@@ -1509,8 +1516,6 @@ MLINKS+=VOP_CREATE.9 VOP_MKDIR.9 \
 	VOP_CREATE.9 VOP_MKNOD.9 \
 	VOP_CREATE.9 VOP_SYMLINK.9
 MLINKS+=VOP_GETPAGES.9 VOP_PUTPAGES.9
-MLINKS+=VOP_GETVOBJECT.9 VOP_CREATEVOBJECT.9 \
-	VOP_GETVOBJECT.9 VOP_DESTROYVOBJECT.9
 MLINKS+=VOP_INACTIVE.9 VOP_RECLAIM.9
 MLINKS+=VOP_LOCK.9 vn_lock.9 \
 	VOP_LOCK.9 VOP_ISLOCKED.9 \

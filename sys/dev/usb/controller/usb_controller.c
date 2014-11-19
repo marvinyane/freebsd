@@ -133,7 +133,7 @@ DRIVER_MODULE(usbus, xhci, usb_driver, usb_devclass, 0, 0);
 /* Device Only Drivers */
 DRIVER_MODULE(usbus, at91_udp, usb_driver, usb_devclass, 0, 0);
 DRIVER_MODULE(usbus, musbotg, usb_driver, usb_devclass, 0, 0);
-DRIVER_MODULE(usbus, uss820, usb_driver, usb_devclass, 0, 0);
+DRIVER_MODULE(usbus, uss820dci, usb_driver, usb_devclass, 0, 0);
 DRIVER_MODULE(usbus, octusb, usb_driver, usb_devclass, 0, 0);
 
 /* Dual Mode Drivers */
@@ -332,7 +332,7 @@ usb_shutdown(device_t dev)
 		return (0);
 	}
 
-	device_printf(bus->bdev, "Controller shutdown\n");
+	DPRINTF("%s: Controller shutdown\n", device_get_nameunit(bus->bdev));
 
 	USB_BUS_LOCK(bus);
 	usb_proc_msignal(USB_BUS_EXPLORE_PROC(bus),
@@ -344,7 +344,8 @@ usb_shutdown(device_t dev)
 	}
 	USB_BUS_UNLOCK(bus);
 
-	device_printf(bus->bdev, "Controller shutdown complete\n");
+	DPRINTF("%s: Controller shutdown complete\n",
+	    device_get_nameunit(bus->bdev));
 
 	return (0);
 }
@@ -366,7 +367,13 @@ usb_bus_explore(struct usb_proc_msg *pm)
 	if (bus->no_explore != 0)
 		return;
 
-	if (udev && udev->hub) {
+	if (udev != NULL) {
+		USB_BUS_UNLOCK(bus);
+		uhub_explore_handle_re_enumerate(udev);
+		USB_BUS_LOCK(bus);
+	}
+
+	if (udev != NULL && udev->hub != NULL) {
 
 		if (bus->do_probe) {
 			bus->do_probe = 0;
@@ -898,7 +905,10 @@ usb_bus_mem_alloc_all(struct usb_bus *bus, bus_dma_tag_t dmat,
 	bus->alloc_failed = 0;
 
 	mtx_init(&bus->bus_mtx, device_get_nameunit(bus->parent),
-	    NULL, MTX_DEF | MTX_RECURSE);
+	    "usb_def_mtx", MTX_DEF | MTX_RECURSE);
+
+	mtx_init(&bus->bus_spin_lock, device_get_nameunit(bus->parent),
+	    "usb_spin_mtx", MTX_SPIN | MTX_RECURSE);
 
 	usb_callout_init_mtx(&bus->power_wdog,
 	    &bus->bus_mtx, 0);
@@ -953,6 +963,7 @@ usb_bus_mem_free_all(struct usb_bus *bus, usb_bus_mem_cb_t *cb)
 #endif
 
 	mtx_destroy(&bus->bus_mtx);
+	mtx_destroy(&bus->bus_spin_lock);
 }
 
 /* convenience wrappers */

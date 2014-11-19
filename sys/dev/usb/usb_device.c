@@ -451,6 +451,17 @@ usb_endpoint_foreach(struct usb_device *udev, struct usb_endpoint *ep)
 	return (NULL);
 }
 
+#if USB_HAVE_UGEN
+static uint16_t
+usb_get_refcount(struct usb_device *udev)
+{
+	if (usb_proc_is_called_from(USB_BUS_EXPLORE_PROC(udev->bus)) ||
+	    usb_proc_is_called_from(USB_BUS_CONTROL_XFER_PROC(udev->bus)))
+		return (1);
+	return (2);
+}
+#endif
+
 /*------------------------------------------------------------------------*
  *	usb_wait_pending_ref_locked
  *
@@ -463,9 +474,7 @@ static void
 usb_wait_pending_ref_locked(struct usb_device *udev)
 {
 #if USB_HAVE_UGEN
-	const uint16_t refcount =
-	    usb_proc_is_called_from(
-	    USB_BUS_EXPLORE_PROC(udev->bus)) ? 1 : 2;
+	const uint16_t refcount = usb_get_refcount(udev);
 
 	DPRINTF("Refcount = %d\n", (int)refcount); 
 
@@ -496,9 +505,7 @@ static void
 usb_ref_restore_locked(struct usb_device *udev)
 {
 #if USB_HAVE_UGEN
-	const uint16_t refcount =
-	    usb_proc_is_called_from(
-	    USB_BUS_EXPLORE_PROC(udev->bus)) ? 1 : 2;
+	const uint16_t refcount = usb_get_refcount(udev);
 
 	DPRINTF("Refcount = %d\n", (int)refcount); 
 
@@ -1124,10 +1131,12 @@ usb_detach_device_sub(struct usb_device *udev, device_t *ppdev,
 		 */
 		*ppdev = NULL;
 
-		device_printf(dev, "at %s, port %d, addr %d "
-		    "(disconnected)\n",
-		    device_get_nameunit(udev->parent_dev),
-		    udev->port_no, udev->address);
+		if (!rebooting) {
+			device_printf(dev, "at %s, port %d, addr %d "
+			    "(disconnected)\n",
+			    device_get_nameunit(udev->parent_dev),
+			    udev->port_no, udev->address);
+		}
 
 		if (device_is_attached(dev)) {
 			if (udev->flags.peer_suspended) {
@@ -2143,8 +2152,10 @@ usb_free_device(struct usb_device *udev, uint8_t flag)
 #endif
 
 #if USB_HAVE_UGEN
-	printf("%s: <%s> at %s (disconnected)\n", udev->ugen_name,
-	    usb_get_manufacturer(udev), device_get_nameunit(bus->bdev));
+	if (!rebooting) {
+		printf("%s: <%s> at %s (disconnected)\n", udev->ugen_name,
+		    usb_get_manufacturer(udev), device_get_nameunit(bus->bdev));
+	}
 
 	/* Destroy UGEN symlink, if any */
 	if (udev->ugen_symlink) {

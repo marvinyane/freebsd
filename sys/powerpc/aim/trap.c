@@ -80,7 +80,6 @@ static void	printtrap(u_int vector, struct trapframe *frame, int isfatal,
 		    int user);
 static int	trap_pfault(struct trapframe *frame, int user);
 static int	fix_unaligned(struct thread *td, struct trapframe *frame);
-static int	ppc_instr_emulate(struct trapframe *frame);
 static int	handle_onfault(struct trapframe *frame);
 static void	syscall(struct trapframe *frame);
 
@@ -90,12 +89,6 @@ static int	handle_user_slb_spill(pmap_t pm, vm_offset_t addr);
 extern int	n_slbs;
 #endif
 
-int	setfault(faultbuf);		/* defined in locore.S */
-
-/* Why are these not defined in a header? */
-int	badaddr(void *, size_t);
-int	badaddr_read(void *, size_t, int *);
-
 struct powerpc_exception {
 	u_int	vector;
 	char	*name;
@@ -104,27 +97,6 @@ struct powerpc_exception {
 #ifdef KDTRACE_HOOKS
 #include <sys/dtrace_bsd.h>
 
-/*
- * This is a hook which is initialised by the dtrace module
- * to handle traps which might occur during DTrace probe
- * execution.
- */
-dtrace_trap_func_t	dtrace_trap_func;
-
-dtrace_doubletrap_func_t	dtrace_doubletrap_func;
-
-/*
- * This is a hook which is initialised by the systrace module
- * when it is loaded. This keeps the DTrace syscall provider
- * implementation opaque. 
- */
-systrace_probe_func_t	systrace_probe_func;
-
-/*
- * These hooks are necessary for the pid and usdt providers.
- */
-dtrace_pid_probe_ptr_t		dtrace_pid_probe_ptr;
-dtrace_return_probe_ptr_t	dtrace_return_probe_ptr;
 int (*dtrace_invop_jump_addr)(struct trapframe *);
 #endif
 
@@ -225,6 +197,7 @@ trap(struct trapframe *frame)
 		case EXC_TRC:
 			frame->srr1 &= ~PSL_SE;
 			sig = SIGTRAP;
+			ucode = TRAP_TRACE;
 			break;
 
 #ifdef __powerpc64__
@@ -232,13 +205,17 @@ trap(struct trapframe *frame)
 		case EXC_DSE:
 			if (handle_user_slb_spill(&p->p_vmspace->vm_pmap,
 			    (type == EXC_ISE) ? frame->srr0 :
-			    frame->cpu.aim.dar) != 0)
+			    frame->cpu.aim.dar) != 0) {
 				sig = SIGSEGV;
+				ucode = SEGV_MAPERR;
+			}
 			break;
 #endif
 		case EXC_DSI:
 		case EXC_ISI:
 			sig = trap_pfault(frame, 1);
+			if (sig == SIGSEGV)
+				ucode = SEGV_MAPERR;
 			break;
 
 		case EXC_SC:
@@ -273,8 +250,10 @@ trap(struct trapframe *frame)
 			break;
 
 		case EXC_ALI:
-			if (fix_unaligned(td, frame) != 0)
+			if (fix_unaligned(td, frame) != 0) {
 				sig = SIGBUS;
+				ucode = BUS_ADRALN;
+			}
 			else
 				frame->srr0 += 4;
 			break;
@@ -292,10 +271,27 @@ trap(struct trapframe *frame)
 				}
 #endif
  				sig = SIGTRAP;
-			} else if (ppc_instr_emulate(frame) == 0)
-				frame->srr0 += 4;
-			else
-				sig = SIGILL;
+				ucode = TRAP_BRKPT;
+			} else {
+				sig = ppc_instr_emulate(frame, td->td_pcb);
+				if (sig == SIGILL) {
+					if (frame->srr1 & EXC_PGM_PRIV)
+						ucode = ILL_PRVOPC;
+					else if (frame->srr1 & EXC_PGM_ILLEGAL)
+						ucode = ILL_ILLOPC;
+				} else if (sig == SIGFPE)
+					ucode = FPE_FLTINV;	/* Punt for now, invalid operation. */
+			}
+			break;
+
+		case EXC_MCHK:
+			/*
+			 * Note that this may not be recoverable for the user
+			 * process, depending on the type of machine check,
+			 * but it at least prevents the kernel from dying.
+			 */
+			sig = SIGBUS;
+			ucode = BUS_OBJERR;
 			break;
 
 		default:
@@ -697,59 +693,6 @@ trap_pfault(struct trapframe *frame, int user)
 	return (SIGSEGV);
 }
 
-int
-badaddr(void *addr, size_t size)
-{
-	return (badaddr_read(addr, size, NULL));
-}
-
-int
-badaddr_read(void *addr, size_t size, int *rptr)
-{
-	struct thread	*td;
-	faultbuf	env;
-	int		x;
-
-	/* Get rid of any stale machine checks that have been waiting.  */
-	__asm __volatile ("sync; isync");
-
-	td = curthread;
-
-	if (setfault(env)) {
-		td->td_pcb->pcb_onfault = 0;
-		__asm __volatile ("sync");
-		return 1;
-	}
-
-	__asm __volatile ("sync");
-
-	switch (size) {
-	case 1:
-		x = *(volatile int8_t *)addr;
-		break;
-	case 2:
-		x = *(volatile int16_t *)addr;
-		break;
-	case 4:
-		x = *(volatile int32_t *)addr;
-		break;
-	default:
-		panic("badaddr: invalid size (%zd)", size);
-	}
-
-	/* Make sure we took the machine check, if we caused one. */
-	__asm __volatile ("sync; isync");
-
-	td->td_pcb->pcb_onfault = 0;
-	__asm __volatile ("sync");	/* To be sure. */
-
-	/* Use the value to avoid reorder. */
-	if (rptr)
-		*rptr = x;
-
-	return (0);
-}
-
 /*
  * For now, this only deals with the particular unaligned access case
  * that gcc tends to generate.  Eventually it should handle all of the
@@ -798,22 +741,5 @@ fix_unaligned(struct thread *td, struct trapframe *frame)
 	}
 
 	return -1;
-}
-
-static int
-ppc_instr_emulate(struct trapframe *frame)
-{
-	uint32_t instr;
-	int reg;
-
-	instr = fuword32((void *)frame->srr0);
-
-	if ((instr & 0xfc1fffff) == 0x7c1f42a6) {	/* mfpvr */
-		reg = (instr & ~0xfc1fffff) >> 21;
-		frame->fixreg[reg] = mfpvr();
-		return (0);
-	}
-
-	return (-1);
 }
 

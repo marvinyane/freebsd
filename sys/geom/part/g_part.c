@@ -108,6 +108,16 @@ struct g_part_alias_list {
 	{ "vmware-vmkdiag", G_PART_ALIAS_VMKDIAG },
 	{ "vmware-reserved", G_PART_ALIAS_VMRESERVED },
 	{ "vmware-vsanhdr", G_PART_ALIAS_VMVSANHDR },
+	{ "dragonfly-label32", G_PART_ALIAS_DFBSD },
+	{ "dragonfly-label64", G_PART_ALIAS_DFBSD64 },
+	{ "dragonfly-swap", G_PART_ALIAS_DFBSD_SWAP },
+	{ "dragonfly-ufs", G_PART_ALIAS_DFBSD_UFS },
+	{ "dragonfly-vinum", G_PART_ALIAS_DFBSD_VINUM },
+	{ "dragonfly-ccd", G_PART_ALIAS_DFBSD_CCD },
+	{ "dragonfly-legacy", G_PART_ALIAS_DFBSD_LEGACY },
+	{ "dragonfly-hammer", G_PART_ALIAS_DFBSD_HAMMER },
+	{ "dragonfly-hammer2", G_PART_ALIAS_DFBSD_HAMMER2 },
+	{ "prep-boot", G_PART_ALIAS_PREP_BOOT },
 };
 
 SYSCTL_DECL(_kern_geom);
@@ -133,6 +143,7 @@ static g_dumpconf_t g_part_dumpconf;
 static g_orphan_t g_part_orphan;
 static g_spoiled_t g_part_spoiled;
 static g_start_t g_part_start;
+static g_resize_t g_part_resize;
 
 static struct g_class g_part_class = {
 	.name = "PART",
@@ -149,6 +160,7 @@ static struct g_class g_part_class = {
 	.orphan = g_part_orphan,
 	.spoiled = g_part_spoiled,
 	.start = g_part_start,
+	.resize = g_part_resize
 };
 
 DECLARE_GEOM_CLASS(g_part_class, g_part);
@@ -1314,7 +1326,9 @@ g_part_ctl_resize(struct gctl_req *req, struct g_part_parms *gpp)
 
 	error = G_PART_RESIZE(table, entry, gpp);
 	if (error) {
-		gctl_error(req, "%d", error);
+		gctl_error(req, "%d%s", error, error != EBUSY ? "":
+		    " resizing will lead to unexpected shrinking"
+		    " due to alignment");
 		return (error);
 	}
 
@@ -2043,6 +2057,32 @@ g_part_dumpconf(struct sbuf *sb, const char *indent, struct g_geom *gp,
 		sbuf_printf(sb, "%s<modified>%s</modified>\n", indent,
 		    table->gpt_opened ? "true": "false");
 		G_PART_DUMPCONF(table, NULL, sb, indent);
+	}
+}
+
+static void
+g_part_resize(struct g_consumer *cp)
+{
+	struct g_part_table *table;
+
+	G_PART_TRACE((G_T_TOPOLOGY, "%s(%s)", __func__, cp->provider->name));
+	g_topology_assert();
+
+	table = cp->geom->softc;
+	if (table->gpt_opened == 0) {
+		if (g_access(cp, 1, 1, 1) != 0)
+			return;
+		table->gpt_opened = 1;
+	}
+	if (G_PART_RESIZE(table, NULL, NULL) == 0)
+		printf("GEOM_PART: %s was automatically resized.\n"
+		    "  Use `gpart commit %s` to save changes or "
+		    "`gpart undo %s` to revert them.\n", cp->geom->name,
+		    cp->geom->name, cp->geom->name);
+	if (g_part_check_integrity(table, cp) != 0) {
+		g_access(cp, -1, -1, -1);
+		table->gpt_opened = 0;
+		g_part_wither(table->gpt_gp, ENXIO);
 	}
 }
 

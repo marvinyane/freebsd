@@ -909,10 +909,8 @@ vm_pageout_scan(struct vm_domain *vmd, int pass)
 {
 	vm_page_t m, next;
 	struct vm_pagequeue *pq;
-	int page_shortage, maxscan, pcount;
-	int addl_page_shortage;
 	vm_object_t object;
-	int act_delta;
+	int act_delta, addl_page_shortage, deficit, maxscan, page_shortage;
 	int vnodes_skipped = 0;
 	int maxlaunder;
 	int lockmode;
@@ -923,7 +921,7 @@ vm_pageout_scan(struct vm_domain *vmd, int pass)
 	 * some.  We rate limit to avoid thrashing.
 	 */
 	if (vmd == &vm_dom[0] && pass > 0 &&
-	    lowmem_ticks + (lowmem_period * hz) < ticks) {
+	    (ticks - lowmem_ticks) / hz >= lowmem_period) {
 		/*
 		 * Decrease registered cache sizes.
 		 */
@@ -942,13 +940,17 @@ vm_pageout_scan(struct vm_domain *vmd, int pass)
 	 * number of pages from the inactive count that should be
 	 * discounted in setting the target for the active queue scan.
 	 */
-	addl_page_shortage = atomic_readandclear_int(&vm_pageout_deficit);
+	addl_page_shortage = 0;
 
 	/*
 	 * Calculate the number of pages we want to either free or move
 	 * to the cache.
 	 */
-	page_shortage = vm_paging_target() + addl_page_shortage;
+	if (pass > 0) {
+		deficit = atomic_readandclear_int(&vm_pageout_deficit);
+		page_shortage = vm_paging_target() + deficit;
+	} else
+		page_shortage = deficit = 0;
 
 	/*
 	 * maxlaunder limits the number of dirty pages we flush per scan.
@@ -1245,6 +1247,7 @@ vm_pageout_scan(struct vm_domain *vmd, int pass)
 				 */
 				if (vm_page_busied(m)) {
 					vm_page_unlock(m);
+					addl_page_shortage++;
 					goto unlock_and_continue;
 				}
 
@@ -1252,9 +1255,9 @@ vm_pageout_scan(struct vm_domain *vmd, int pass)
 				 * If the page has become held it might
 				 * be undergoing I/O, so skip it
 				 */
-				if (m->hold_count) {
+				if (m->hold_count != 0) {
 					vm_page_unlock(m);
-					vm_page_requeue_locked(m);
+					addl_page_shortage++;
 					if (object->flags & OBJ_MIGHTBEDIRTY)
 						vnodes_skipped++;
 					goto unlock_and_continue;
@@ -1305,23 +1308,41 @@ relock_queues:
 	}
 	vm_pagequeue_unlock(pq);
 
+#if !defined(NO_SWAPPING)
+	/*
+	 * Wakeup the swapout daemon if we didn't cache or free the targeted
+	 * number of pages. 
+	 */
+	if (vm_swap_enabled && page_shortage > 0)
+		vm_req_vmdaemon(VM_SWAP_NORMAL);
+#endif
+
+	/*
+	 * Wakeup the sync daemon if we skipped a vnode in a writeable object
+	 * and we didn't cache or free enough pages.
+	 */
+	if (vnodes_skipped > 0 && page_shortage > cnt.v_free_target -
+	    cnt.v_free_min)
+		(void)speedup_syncer();
+
 	/*
 	 * Compute the number of pages we want to try to move from the
 	 * active queue to the inactive queue.
 	 */
+	page_shortage = cnt.v_inactive_target - cnt.v_inactive_count +
+	    vm_paging_target() + deficit + addl_page_shortage;
+
 	pq = &vmd->vmd_pagequeues[PQ_ACTIVE];
 	vm_pagequeue_lock(pq);
-	pcount = pq->pq_cnt;
-	page_shortage = vm_paging_target() +
-	    cnt.v_inactive_target - cnt.v_inactive_count;
-	page_shortage += addl_page_shortage;
+	maxscan = pq->pq_cnt;
+
 	/*
 	 * If we're just idle polling attempt to visit every
 	 * active page within 'update_period' seconds.
 	 */
-	 if (pass == 0 && vm_pageout_update_period != 0) {
-		pcount /= vm_pageout_update_period;
-		page_shortage = pcount;
+	if (pass == 0 && vm_pageout_update_period != 0) {
+		maxscan /= vm_pageout_update_period;
+		page_shortage = maxscan;
 	}
 
 	/*
@@ -1330,7 +1351,7 @@ relock_queues:
 	 * deactivation candidates.
 	 */
 	m = TAILQ_FIRST(&pq->pq_pl);
-	while ((m != NULL) && (pcount-- > 0) && (page_shortage > 0)) {
+	while (m != NULL && maxscan-- > 0 && page_shortage > 0) {
 
 		KASSERT(m->queue == PQ_ACTIVE,
 		    ("vm_pageout_scan: page %p isn't active", m));
@@ -1414,20 +1435,6 @@ relock_queues:
 		}
 	}
 #endif
-		
-	/*
-	 * If we didn't get enough free pages, and we have skipped a vnode
-	 * in a writeable object, wakeup the sync daemon.  And kick swapout
-	 * if we did not get enough free pages.
-	 */
-	if (vm_paging_target() > 0) {
-		if (vnodes_skipped && vm_page_count_min())
-			(void) speedup_syncer();
-#if !defined(NO_SWAPPING)
-		if (vm_swap_enabled && vm_page_count_target())
-			vm_req_vmdaemon(VM_SWAP_NORMAL);
-#endif
-	}
 
 	/*
 	 * If we are critically low on one of RAM or swap and low on

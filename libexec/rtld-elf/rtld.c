@@ -161,6 +161,7 @@ static bool matched_symbol(SymLook *, const Obj_Entry *, Sym_Match_Result *,
     const unsigned long);
 
 void r_debug_state(struct r_debug *, struct link_map *) __noinline;
+void _r_debug_postinit(struct link_map *) __noinline;
 
 /*
  * Data declarations.
@@ -635,6 +636,7 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
     if (obj_main->crt_no_init)
 	preinit_main();
     objlist_call_init(&initlist, &lockstate);
+    _r_debug_postinit(&obj_main->linkmap);
     objlist_clear(&initlist);
     dbg("loading filtees");
     for (obj = obj_list->next; obj != NULL; obj = obj->next) {
@@ -2473,7 +2475,7 @@ relocate_object(Obj_Entry *obj, bool bind_now, Obj_Entry *rtldobj,
 		}
 	}
 
-	/* Process the non-PLT relocations. */
+	/* Process the non-PLT non-IFUNC relocations. */
 	if (reloc_non_plt(obj, rtldobj, flags, lockstate))
 		return (-1);
 
@@ -2486,7 +2488,6 @@ relocate_object(Obj_Entry *obj, bool bind_now, Obj_Entry *rtldobj,
 		}
 	}
 
-
 	/* Set the special PLT or GOT entries. */
 	init_pltgot(obj);
 
@@ -2497,6 +2498,16 @@ relocate_object(Obj_Entry *obj, bool bind_now, Obj_Entry *rtldobj,
 	if (obj->bind_now || bind_now)
 		if (reloc_jmpslots(obj, flags, lockstate) == -1)
 			return (-1);
+
+	/*
+	 * Process the non-PLT IFUNC relocations.  The relocations are
+	 * processed in two phases, because IFUNC resolvers may
+	 * reference other symbols, which must be readily processed
+	 * before resolvers are called.
+	 */
+	if (obj->non_plt_gnu_ifunc &&
+	    reloc_non_plt(obj, rtldobj, flags | SYMLOOK_IFUNC, lockstate))
+		return (-1);
 
 	if (obj->relro_size > 0) {
 		if (mprotect(obj->relro_page, obj->relro_size,
@@ -3497,7 +3508,20 @@ r_debug_state(struct r_debug* rd, struct link_map *m)
      * even when marked __noinline.  However, gdb depends on those
      * calls being made.
      */
-    __asm __volatile("" : : : "memory");
+    __compiler_membar();
+}
+
+/*
+ * A function called after init routines have completed. This can be used to
+ * break before a program's entry routine is called, and can be used when
+ * main is not available in the symbol table.
+ */
+void
+_r_debug_postinit(struct link_map *m)
+{
+
+	/* See r_debug_state(). */
+	__compiler_membar();
 }
 
 /*

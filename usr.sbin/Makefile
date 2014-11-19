@@ -5,6 +5,8 @@
 
 SUBDIR=	adduser \
 	arp \
+	autofs \
+	binmiscctl \
 	bootparamd \
 	bsdconfig \
 	bsdinstall \
@@ -290,6 +292,10 @@ SUBDIR+=	mailstats
 SUBDIR+=	makemap
 SUBDIR+=	praliases
 SUBDIR+=	sendmail
+.endif
+
+.if ${MK_TESTS} != "no"
+SUBDIR+=	tests
 .endif
 
 .if ${MK_TOOLCHAIN} != "no"

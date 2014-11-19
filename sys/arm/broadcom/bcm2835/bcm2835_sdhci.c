@@ -42,6 +42,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/queue.h>
 #include <sys/resource.h>
 #include <sys/rman.h>
+#include <sys/sysctl.h>
 #include <sys/taskqueue.h>
 #include <sys/time.h>
 #include <sys/timetc.h>
@@ -151,6 +152,10 @@ bcm_dmamap_cb(void *arg, bus_dma_segment_t *segs,
 static int
 bcm_sdhci_probe(device_t dev)
 {
+
+	if (!ofw_bus_status_okay(dev))
+		return (ENXIO);
+
 	if (!ofw_bus_is_compatible(dev, "broadcom,bcm2835-sdhci"))
 		return (ENXIO);
 

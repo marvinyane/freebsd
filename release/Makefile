@@ -23,6 +23,9 @@
 #  WITH_DVD: if set, generate dvd1.iso
 #  WITH_COMPRESSED_IMAGES: if set, compress installation images with xz(1)
 #		(uncompressed images are not removed)
+#  WITH_VMIMAGES: if set, build virtual machine images with the release
+#  WITH_COMPRESSED_VMIMAGES: if set, compress virtual machine disk images
+#  		with xz(1) (extremely time consuming)
 #  TARGET/TARGET_ARCH: architecture of built release
 #
 
@@ -53,10 +56,16 @@ ${_V}!=	eval $$(awk '/^${_V}=/{print}' ${.CURDIR}/../sys/conf/newvers.sh); echo 
 .for _V in ${TARGET_ARCH}
 .if !empty(TARGET:M${_V})
 OSRELEASE=	${TYPE}-${REVISION}-${BRANCH}-${TARGET}
+VOLUME_LABEL=	${REVISION:C/[.-]/_/g}_${BRANCH:C/[.-]/_/g}_${TARGET}
 .else
 OSRELEASE=	${TYPE}-${REVISION}-${BRANCH}-${TARGET}-${TARGET_ARCH}
+VOLUME_LABEL=	${REVISION:C/[.-]/_/g}_${BRANCH:C/[.-]/_/g}_${TARGET_ARCH}
 .endif
 .endfor
+.endif
+
+.if !defined(VOLUME_LABEL) || empty(VOLUME_LABEL)
+VOLUME_LABEL=	FreeBSD_Install
 .endif
 
 .if !exists(${DOCDIR})
@@ -93,6 +102,28 @@ RELEASE_TARGETS+= mini-memstick.img
 IMAGES+=	memstick.img
 IMAGES+=	mini-memstick.img
 .endif
+.if exists(${.CURDIR}/${TARGET}/make-uefi-memstick.sh)
+RELEASE_TARGETS+=uefi-memstick.img
+RELEASE_TARGETS+=uefi-mini-memstick.img
+IMAGES+=	uefi-memstick.img
+IMAGES+=	uefi-mini-memstick.img
+.endif
+.if exists(${.CURDIR}/${TARGET}/mkisoimages-uefi.sh)
+RELEASE_TARGETS+=uefi-disc1.iso
+RELEASE_TARGETS+=uefi-bootonly.iso
+IMAGES+=	uefi-disc1.iso
+IMAGES+=	uefi-bootonly.iso
+. if defined(WITH_DVD) && !empty(WITH_DVD)
+RELEASE_TARGETS+=uefi-dvd1.iso
+IMAGES+=	uefi-dvd1.iso
+. endif
+.endif
+
+VMTARGETS=	vm-base vm-image
+VMFORMATS?=	vhd vmdk qcow2 raw
+VMSIZE?=	20G
+VMBASE?=	vm
+AZURECONF?=	${.CURDIR}/tools/azure.conf
 
 CLEANFILES=	packagesystem *.txz MANIFEST system ${IMAGES}
 .if defined(WITH_COMPRESSED_IMAGES) && !empty(WITH_COMPRESSED_IMAGES)
@@ -100,7 +131,25 @@ CLEANFILES=	packagesystem *.txz MANIFEST system ${IMAGES}
 CLEANFILES+=	${I}.xz
 . endfor
 .endif
+.if defined(WITH_DVD) && !empty(WITH_DVD)
+CLEANFILES+=	pkg-stage
+.endif
+.if defined(WITH_VMIMAGES) && !empty(WITH_VMIMAGES)
+CLEANFILES+=	${VMBASE}.img
+. for FORMAT in ${VMFORMATS}
+CLEANFILES+=	${VMBASE}.${FORMAT}
+. endfor
+.endif
 CLEANDIRS=	dist ftp release bootonly dvd
+.if defined(WITH_VMIMAGES) && !empty(WITH_VMIMAGES)
+CLEANDIRS+=	${VMTARGETS}
+.endif
+.if exists(${.CURDIR}/${TARGET}/mk-azure.sh)
+CLEANFILES+=	${OSRELEASE}.vhd \
+		${OSRELEASE}.vhd.raw \
+		azure.img
+CLEANDIRS+=	vm-azure
+.endif
 beforeclean:
 	chflags -R noschg .
 .include <bsd.obj.mk>
@@ -211,13 +260,31 @@ dvd:
 
 release.iso: disc1.iso
 disc1.iso: system
-	sh ${.CURDIR}/${TARGET}/mkisoimages.sh -b FreeBSD_Install ${.TARGET} release
+	sh ${.CURDIR}/${TARGET}/mkisoimages.sh -b ${VOLUME_LABEL}_CD ${.TARGET} release
+
+uefi-disc1.iso: system
+.if exists(${.CURDIR}/${TARGET}/mkisoimages-uefi.sh)
+	sh ${.CURDIR}/${TARGET}/mkisoimages-uefi.sh -b ${VOLUME_LABEL}_UEFICD \
+		${.TARGET} release
+.endif
+
+uefi-bootonly.iso: bootonly
+.if exists(${.CURDIR}/${TARGET}/mkisoimages-uefi.sh)
+	sh ${.CURDIR}/${TARGET}/mkisoimages-uefi.sh -b ${VOLUME_LABEL}_UEFIBO \
+		${.TARGET} bootonly
+.endif
 
 dvd1.iso: dvd pkg-stage
-	sh ${.CURDIR}/${TARGET}/mkisoimages.sh -b FreeBSD_Install ${.TARGET} dvd
+	sh ${.CURDIR}/${TARGET}/mkisoimages.sh -b ${VOLUME_LABEL}_DVD ${.TARGET} dvd
+
+uefi-dvd1.iso: dvd pkg-stage
+.if exists(${.CURDIR}/${TARGET}/mkisoimages-uefi.sh)
+	sh ${.CURDIR}/${TARGET}/mkisoimages-uefi.sh -b ${VOLUME_LABEL}_UEFIDVD \
+		${.TARGET} dvd
+.endif
 
 bootonly.iso: bootonly
-	sh ${.CURDIR}/${TARGET}/mkisoimages.sh -b FreeBSD_Install ${.TARGET} bootonly
+	sh ${.CURDIR}/${TARGET}/mkisoimages.sh -b ${VOLUME_LABEL}_BO ${.TARGET} bootonly
 
 memstick: memstick.img
 memstick.img: system
@@ -226,6 +293,18 @@ memstick.img: system
 mini-memstick: mini-memstick.img
 mini-memstick.img: system
 	sh ${.CURDIR}/${TARGET}/make-memstick.sh bootonly ${.TARGET}
+
+uefi-memstick: uefi-memstick.img
+uefi-memstick.img: system
+.if exists(${.CURDIR}/${TARGET}/make-uefi-memstick.sh)
+	sh ${.CURDIR}/${TARGET}/make-uefi-memstick.sh release ${.TARGET}
+.endif
+
+uefi-mini-memstick: uefi-mini-memstick.img
+uefi-mini-memstick.img: system
+.if exists(${.CURDIR}/${TARGET}/make-uefi-memstick.sh)
+	sh ${.CURDIR}/${TARGET}/make-uefi-memstick.sh bootonly ${.TARGET}
+.endif
 
 packagesystem: base.txz kernel.txz ${EXTRA_PACKAGES}
 	sh ${.CURDIR}/scripts/make-manifest.sh *.txz > MANIFEST
@@ -251,6 +330,9 @@ ftp: packagesystem
 release:
 	${MAKE} -C ${.CURDIR} ${.MAKEFLAGS} obj
 	${MAKE} -C ${.CURDIR} ${.MAKEFLAGS} ${RELEASE_TARGETS}
+.if defined(WITH_VMIMAGES) && !empty(WITH_VMIMAGES)
+	${MAKE} -C ${.CURDIR} ${.MAKEFLAGS} ${VMTARGETS}
+.endif
 
 install:
 .if defined(DESTDIR) && !empty(DESTDIR)
@@ -265,3 +347,52 @@ install:
 .endfor
 	cd ${DESTDIR} && sha256 ${OSRELEASE}* > ${DESTDIR}/CHECKSUM.SHA256
 	cd ${DESTDIR} && md5 ${OSRELEASE}* > ${DESTDIR}/CHECKSUM.MD5
+.if defined(WITH_VMIMAGES) && !empty(WITH_VMIMAGES)
+	mkdir -p ${DESTDIR}/vmimages
+. for FORMAT in ${VMFORMATS}
+	cp -p ${VMBASE}.${FORMAT} \
+		${DESTDIR}/vmimages/${OSRELEASE}.${FORMAT}
+. endfor
+. if defined(WITH_COMPRESSED_VMIMAGES) && !empty(WITH_COMPRESSED_VMIMAGES)
+# This is very time consuming, so defer it after the images are moved to
+# the DESTDIR.
+.  for FORMAT in ${VMFORMATS}
+	# Don't keep the originals.  There is a copy in ${.OBJDIR} if needed.
+	${XZCMD} ${DESTDIR}/vmimages/${OSRELEASE}.${FORMAT}
+.  endfor
+. endif
+	cd ${DESTDIR}/vmimages && sha256 ${OSRELEASE}* > \
+		${DESTDIR}/vmimages/CHECKSUM.SHA256
+	cd ${DESTDIR}/vmimages && md5 ${OSRELEASE}* > \
+		${DESTDIR}/vmimages/CHECKSUM.MD5
+.endif
+
+vm-base:
+.if defined(WITH_VMIMAGES) && !empty(WITH_VMIMAGES)
+. if exists(${.CURDIR}/${TARGET}/mk-vmimage.sh)
+	env TARGET=${TARGET} TARGET_ARCH=${TARGET_ARCH} \
+		${.CURDIR}/${TARGET}/mk-vmimage.sh ${.TARGET} \
+		${VMBASE}.img ${WORLDDIR} ${.OBJDIR}/${.TARGET} ${VMSIZE}
+. endif
+.endif
+	touch ${.TARGET}
+
+vm-image: vm-base
+.if defined(WITH_VMIMAGES) && !empty(WITH_VMIMAGES)
+. if exists(${.CURDIR}/${TARGET}/mk-vmimage.sh)
+.  for FORMAT in ${VMFORMATS}
+	env TARGET=${TARGET} TARGET_ARCH=${TARGET_ARCH} \
+		${.CURDIR}/${TARGET}/mk-vmimage.sh ${.TARGET} \
+		${VMBASE}.img ${FORMAT} ${VMBASE}.${FORMAT}
+.  endfor
+. endif
+.endif
+	touch ${.TARGET}
+
+vm-azure:
+.if exists(${.CURDIR}/${TARGET}/mk-azure.sh)
+	env TARGET=${TARGET} TARGET_ARCH=${TARGET_ARCH} AZURECONF=${AZURECONF} \
+		${.CURDIR}/${TARGET}/mk-azure.sh ${.TARGET} azure.img \
+		${WORLDDIR} ${.TARGET} ${VMSIZE} ${OSRELEASE}.vhd
+.endif
+	touch ${.TARGET}

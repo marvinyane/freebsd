@@ -94,6 +94,7 @@ compat/linux/linux_socket.c	optional compat_linux
 compat/linux/linux_stats.c	optional compat_linux
 compat/linux/linux_sysctl.c	optional compat_linux
 compat/linux/linux_time.c	optional compat_linux
+compat/linux/linux_timer.c	optional compat_linux
 compat/linux/linux_uid16.c	optional compat_linux
 compat/linux/linux_util.c	optional compat_linux
 compat/ndis/kern_ndis.c		optional ndisapi pci
@@ -226,6 +227,7 @@ dev/hyperv/netvsc/hv_netvsc_drv_freebsd.c		optional	hyperv
 dev/hyperv/netvsc/hv_rndis_filter.c			optional	hyperv
 dev/hyperv/stordisengage/hv_ata_pci_disengage.c		optional	hyperv
 dev/hyperv/storvsc/hv_storvsc_drv_freebsd.c		optional	hyperv
+dev/hyperv/utilities/hv_kvp.c				optional	hyperv
 dev/hyperv/utilities/hv_util.c				optional	hyperv
 dev/hyperv/vmbus/hv_channel.c				optional	hyperv
 dev/hyperv/vmbus/hv_channel_mgmt.c			optional	hyperv
@@ -293,7 +295,6 @@ dev/viawd/viawd.c		optional viawd
 dev/vmware/vmxnet3/if_vmx.c	optional vmx
 dev/acpica/acpi_if.m		standard
 dev/acpi_support/acpi_wmi_if.m	standard
-dev/vt/hw/xboxfb/xboxfb.c	optional vt_xboxfb
 dev/wbwd/wbwd.c			optional wbwd
 dev/wpi/if_wpi.c		optional wpi
 dev/isci/isci.c							optional isci
@@ -414,6 +415,7 @@ dev/virtio/network/if_vtnet.c		optional	vtnet
 dev/virtio/block/virtio_blk.c		optional	virtio_blk
 dev/virtio/balloon/virtio_balloon.c	optional	virtio_balloon
 dev/virtio/scsi/virtio_scsi.c		optional	virtio_scsi
+dev/virtio/random/virtio_random.c	optional	virtio_random
 i386/acpica/acpi_machdep.c	optional acpi
 acpi_wakecode.o			optional acpi				\
 	dependency	"$S/i386/acpica/acpi_wakecode.S assym.s"	\
@@ -533,6 +535,7 @@ isa/syscons_isa.c		optional sc
 isa/vga_isa.c			optional vga
 kern/kern_clocksource.c		standard
 kern/imgact_aout.c		optional compat_aout
+kern/imgact_binmisc.c		optional imagact_binmisc
 kern/imgact_gzip.c		optional gzip
 libkern/divdi3.c		standard
 libkern/ffsl.c			standard

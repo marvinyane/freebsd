@@ -77,10 +77,6 @@ dtrace_vtime_switch_func_t	dtrace_vtime_switch_func;
 #include <machine/cpu.h>
 #include <machine/smp.h>
 
-#if defined(__powerpc__) && defined(BOOKE_E500)
-#error "This architecture is not currently compatible with ULE"
-#endif
-
 #define	KTR_ULE	0
 
 #define	TS_NAME_LEN (MAXCOMLEN + sizeof(" td ") + sizeof(__XSTRING(UINT_MAX)))
@@ -626,12 +622,14 @@ struct cpu_search {
 	for ((cpu) = 0; (cpu) <= mp_maxid; (cpu)++)		\
 		if (CPU_ISSET(cpu, &mask))
 
-static __inline int cpu_search(const struct cpu_group *cg, struct cpu_search *low,
-    struct cpu_search *high, const int match);
-int cpu_search_lowest(const struct cpu_group *cg, struct cpu_search *low);
-int cpu_search_highest(const struct cpu_group *cg, struct cpu_search *high);
-int cpu_search_both(const struct cpu_group *cg, struct cpu_search *low,
+static __always_inline int cpu_search(const struct cpu_group *cg,
+    struct cpu_search *low, struct cpu_search *high, const int match);
+int __noinline cpu_search_lowest(const struct cpu_group *cg,
+    struct cpu_search *low);
+int __noinline cpu_search_highest(const struct cpu_group *cg,
     struct cpu_search *high);
+int __noinline cpu_search_both(const struct cpu_group *cg,
+    struct cpu_search *low, struct cpu_search *high);
 
 /*
  * Search the tree of cpu_groups for the lowest or highest loaded cpu
@@ -644,7 +642,7 @@ int cpu_search_both(const struct cpu_group *cg, struct cpu_search *low,
  * match argument.  It is reduced to the minimum set for each case.  It is
  * also recursive to the depth of the tree.
  */
-static __inline int
+static __always_inline int
 cpu_search(const struct cpu_group *cg, struct cpu_search *low,
     struct cpu_search *high, const int match)
 {
@@ -1039,6 +1037,14 @@ tdq_notify(struct tdq *tdq, struct thread *td)
 	ctd = pcpu_find(cpu)->pc_curthread;
 	if (!sched_shouldpreempt(pri, ctd->td_priority, 1))
 		return;
+
+	/*
+	 * Make sure that tdq_load updated before calling this function
+	 * is globally visible before we read tdq_cpu_idle.  Idle thread
+	 * accesses both of them without locks, and the order is important.
+	 */
+	mb();
+
 	if (TD_IS_IDLETHREAD(ctd)) {
 		/*
 		 * If the MD code has an idle wakeup routine try that before
@@ -1864,7 +1870,8 @@ sched_switch(struct thread *td, struct thread *newtd, int flags)
 	ts->ts_rltick = ticks;
 	td->td_lastcpu = td->td_oncpu;
 	td->td_oncpu = NOCPU;
-	preempted = !(td->td_flags & TDF_SLICEEND);
+	preempted = !((td->td_flags & TDF_SLICEEND) ||
+	    (flags & SWT_RELINQUISH));
 	td->td_flags &= ~(TDF_NEEDRESCHED | TDF_SLICEEND);
 	td->td_owepreempt = 0;
 	if (!TD_IS_IDLETHREAD(td))
@@ -2646,6 +2653,12 @@ sched_idletd(void *dummy)
 
 		/* Run main MD idle handler. */
 		tdq->tdq_cpu_idle = 1;
+		/*
+		 * Make sure that tdq_cpu_idle update is globally visible
+		 * before cpu_idle() read tdq_load.  The order is important
+		 * to avoid race with tdq_notify.
+		 */
+		mb();
 		cpu_idle(switchcnt * 4 > sched_idlespinthresh);
 		tdq->tdq_cpu_idle = 0;
 
@@ -2695,7 +2708,6 @@ sched_throw(struct thread *td)
 void
 sched_fork_exit(struct thread *td)
 {
-	struct td_sched *ts;
 	struct tdq *tdq;
 	int cpuid;
 
@@ -2705,7 +2717,6 @@ sched_fork_exit(struct thread *td)
 	 */
 	cpuid = PCPU_GET(cpuid);
 	tdq = TDQ_CPU(cpuid);
-	ts = td->td_sched;
 	if (TD_IS_IDLETHREAD(td))
 		td->td_lock = TDQ_LOCKPTR(tdq);
 	MPASS(td->td_lock == TDQ_LOCKPTR(tdq));

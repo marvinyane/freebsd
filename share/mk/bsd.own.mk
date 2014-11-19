@@ -285,6 +285,7 @@ __DEFAULT_YES_OPTIONS = \
     GNU \
     GPIB \
     GPIO \
+    GPL_DTC \
     GROFF \
     HTML \
     ICONV \
@@ -357,6 +358,7 @@ __DEFAULT_YES_OPTIONS = \
     UNBOUND \
     USB \
     UTMPX \
+    VT \
     WIRELESS \
     WPA_SUPPLICANT_EAPOL \
     ZFS \
@@ -367,7 +369,6 @@ __DEFAULT_NO_OPTIONS = \
     CLANG_EXTRAS \
     CTF \
     DEBUG_FILES \
-    GPL_DTC \
     HESIOD \
     INSTALL_AS_USER \
     LLDB \
@@ -436,6 +437,12 @@ __DEFAULT_YES_OPTIONS+=GNUCXX
 __DEFAULT_YES_OPTIONS+=FDT
 .else
 __DEFAULT_NO_OPTIONS+=FDT
+.endif
+# HyperV is only available for x86 and amd64.
+.if ${__T} == "amd64" || ${__T} == "i386"
+__DEFAULT_YES_OPTIONS+=HYPERV
+.else
+__DEFAULT_NO_OPTIONS+=HYPERV
 .endif
 .undef __T
 

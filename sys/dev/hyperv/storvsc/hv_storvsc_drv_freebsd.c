@@ -75,7 +75,7 @@ __FBSDID("$FreeBSD$");
 #define STORVSC_MAX_IO_REQUESTS		(STORVSC_MAX_LUNS_PER_TARGET * 2)
 #define BLKVSC_MAX_IDE_DISKS_PER_TARGET	(1)
 #define BLKVSC_MAX_IO_REQUESTS		STORVSC_MAX_IO_REQUESTS
-#define STORVSC_MAX_TARGETS		(1)
+#define STORVSC_MAX_TARGETS		(2)
 
 struct storvsc_softc;
 
@@ -296,7 +296,7 @@ hv_storvsc_channel_init(struct hv_device *dev)
 			dev->channel,
 			vstor_packet,
 			sizeof(struct vstor_packet),
-			(uint64_t)request,
+			(uint64_t)(uintptr_t)request,
 			HV_VMBUS_PACKET_TYPE_DATA_IN_BAND,
 			HV_VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED);
 
@@ -330,7 +330,7 @@ hv_storvsc_channel_init(struct hv_device *dev)
 			dev->channel,
 			vstor_packet,
 			sizeof(struct vstor_packet),
-			(uint64_t)request,
+			(uint64_t)(uintptr_t)request,
 			HV_VMBUS_PACKET_TYPE_DATA_IN_BAND,
 			HV_VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED);
 
@@ -361,7 +361,7 @@ hv_storvsc_channel_init(struct hv_device *dev)
 				dev->channel,
 				vstor_packet,
 				sizeof(struct vstor_packet),
-				(uint64_t)request,
+				(uint64_t)(uintptr_t)request,
 				HV_VMBUS_PACKET_TYPE_DATA_IN_BAND,
 				HV_VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED);
 
@@ -389,7 +389,7 @@ hv_storvsc_channel_init(struct hv_device *dev)
 			dev->channel,
 			vstor_packet,
 			sizeof(struct vstor_packet),
-			(uint64_t)request,
+			(uint64_t)(uintptr_t)request,
 			HV_VMBUS_PACKET_TYPE_DATA_IN_BAND,
 			HV_VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED);
 
@@ -482,7 +482,7 @@ hv_storvsc_host_reset(struct hv_device *dev)
 	ret = hv_vmbus_channel_send_packet(dev->channel,
 			vstor_packet,
 			sizeof(struct vstor_packet),
-			(uint64_t)&sc->hs_reset_req,
+			(uint64_t)(uintptr_t)&sc->hs_reset_req,
 			HV_VMBUS_PACKET_TYPE_DATA_IN_BAND,
 			HV_VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED);
 
@@ -547,14 +547,14 @@ hv_storvsc_io_request(struct hv_device *device,
 				&request->data_buf,
 				vstor_packet, 
 				sizeof(struct vstor_packet), 
-				(uint64_t)request);
+				(uint64_t)(uintptr_t)request);
 
 	} else {
 		ret = hv_vmbus_channel_send_packet(
 			device->channel,
 			vstor_packet,
 			sizeof(struct vstor_packet),
-			(uint64_t)request,
+			(uint64_t)(uintptr_t)request,
 			HV_VMBUS_PACKET_TYPE_DATA_IN_BAND,
 			HV_VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED);
 	}
@@ -584,7 +584,6 @@ hv_storvsc_on_iocompletion(struct storvsc_softc *sc,
 
 	vm_srb = &vstor_packet->u.vm_srb;
 
-	request->sense_info_len = 0;
 	if (((vm_srb->scsi_status & 0xFF) == SCSI_STATUS_CHECK_COND) &&
 			(vm_srb->srb_status & SRB_STATUS_AUTOSENSE_VALID)) {
 		/* Autosense data available */
@@ -634,7 +633,7 @@ hv_storvsc_on_channel_callback(void *context)
 			&request_id);
 
 	while ((ret == 0) && (bytes_recvd > 0)) {
-		request = (struct hv_storvsc_request *)request_id;
+		request = (struct hv_storvsc_request *)(uintptr_t)request_id;
 		KASSERT(request, ("request"));
 
 		if ((request == &sc->hs_init_req) ||
@@ -690,14 +689,14 @@ storvsc_probe(device_t dev)
 			if(bootverbose)
 				device_printf(dev,
 					"Enlightened ATA/IDE detected\n");
-			ret = 0;
+			ret = BUS_PROBE_DEFAULT;
 		} else if(bootverbose)
 			device_printf(dev, "Emulated ATA/IDE set (hw.ata.disk_enable set)\n");
 		break;
 	case DRIVER_STORVSC:
 		if(bootverbose)
 			device_printf(dev, "Enlightened SCSI device detected\n");
-		ret = 0;
+		ret = BUS_PROBE_DEFAULT;
 		break;
 	default:
 		ret = ENXIO;

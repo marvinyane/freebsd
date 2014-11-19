@@ -71,6 +71,8 @@
  * valid for use in SCSI INQUIRY VPD page 0x83.
  *
  * The DEV_TYPE flag tells us that the device_type field is filled in.
+ *
+ * The UNMAP flag tells us that this LUN supports UNMAP.
  */
 typedef enum {
 	CTL_LUN_FLAG_ID_REQ		= 0x01,
@@ -79,7 +81,8 @@ typedef enum {
 	CTL_LUN_FLAG_PRIMARY		= 0x08,
 	CTL_LUN_FLAG_SERIAL_NUM		= 0x10,
 	CTL_LUN_FLAG_DEVID		= 0x20,
-	CTL_LUN_FLAG_DEV_TYPE		= 0x40
+	CTL_LUN_FLAG_DEV_TYPE		= 0x40,
+	CTL_LUN_FLAG_UNMAP		= 0x80
 } ctl_backend_lun_flags;
 
 #ifdef _KERNEL
@@ -177,12 +180,6 @@ typedef void (*be_lun_config_t)(void *be_lun,
  * The links field is for CTL internal use only, and should not be used by
  * the backend.
  */
-struct ctl_be_lun_option {
-	STAILQ_ENTRY(ctl_be_lun_option)	links;
-	char			*name;
-	char			*value;
-};
-
 struct ctl_be_lun {
 	uint8_t			lun_type;	/* passed to CTL */
 	ctl_backend_lun_flags	flags;		/* passed to CTL */
@@ -199,7 +196,7 @@ struct ctl_be_lun {
 	be_lun_config_t		lun_config_status; /* passed to CTL */
 	struct ctl_backend_driver *be;		/* passed to CTL */
 	void			*ctl_lun;	/* used by CTL */
-	STAILQ_HEAD(, ctl_be_lun_option) options; /* passed to CTL */
+	ctl_options_t		options;	/* passed to CTL */
 	STAILQ_ENTRY(ctl_be_lun) links;		/* used by CTL */
 };
 
